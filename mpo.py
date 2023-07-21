@@ -95,37 +95,30 @@ class MPO:
         self.skeleton = [node.shape for node in nodes]
         self.weights = [np.linalg.norm(np.ravel(node.data)) for node in nodes]
         self.max_dim = max(list(sum(self.skeleton, ())))
-        
-    def to_matrix(self):
-        matrix = self.nodes[0].data
-        for i in range(1, self.num_nodes): 
-            matrix = np.einsum('ijkl,jmno->imknlo', matrix, self.nodes[i].data)
-            matrix = group_ind(group_ind(matrix, 4,5), 2,3) 
-        return matrix[0][0] 
     
     def __matmul__(self, other):
-        return MPO([Node(group_ind(group_ind(np.einsum('ijkl,mnlo->imjnko', self.nodes[i].data, other.nodes[i].data), 0,1), 1,2))
-                    for i in range(self.num_nodes)])
-    
+        return MPO([Node(group_ind(group_ind(np.tensordot(self.nodes[i].data, other.nodes[i].data, 
+                                axes=([3],[2])).transpose(0,3,1,4,2,5), 0,1), 1,2)) for i in range(self.num_nodes)])
+        
     def compress(self, min_sv_ratio=None, max_dim=None): 
         nodes = copy.deepcopy(self.nodes)
         for i in range(int(self.num_nodes//2)):
             left_tensor, right_tensor = nodes[i].svd('left', min_sv_ratio, max_dim)
             nodes[i] = left_tensor
-            nodes[i+1] = Node(np.einsum('ij,jmno->imno', right_tensor, nodes[i+1].data))
+            nodes[i+1] = Node(np.tensordot(right_tensor, nodes[i+1].data, axes=([1],[0])))
             
         for i in range(self.num_nodes-1, self.num_nodes//2 - 1, -1):
             left_tensor, right_tensor = nodes[i].svd('right', min_sv_ratio, max_dim)
             nodes[i] = right_tensor
-            nodes[i-1] = Node(np.einsum('ijkl,jm->imkl', nodes[i-1].data, left_tensor))
+            nodes[i-1] = Node(np.tensordot(nodes[i-1].data, left_tensor, axes=([1],[0])).transpose(0,3,1,2))
         
-        return MPO(nodes) 
-    
+        return MPO(nodes)
+        
     def trace(self): 
         """ this returns Tr(MPO)/2^n, which matches the cost function and prevents blow up of numbers """
         trace = np.einsum('ijkk', self.nodes[0].data)/2
         for i in range(1, self.num_nodes): 
-            trace = np.einsum('ij,jmno->imno', trace, self.nodes[i].data)
+            trace = np.tensordot(trace, self.nodes[i].data, axes=([1],[0]))
             trace = np.einsum('ijkk', trace)/2
         return trace[0][0]
     
@@ -133,22 +126,35 @@ class MPO:
         """ this returns Tr(self @ other)/2^n """ 
         num_nodes = self.num_nodes
         if start == 'top':
-            trace = np.einsum('ijkl,ablk->iajb', self.nodes[0].data, other.nodes[0].data)/2
+            trace = np.tensordot(self.nodes[0].data, other.nodes[0].data, axes=([2,3],[3,2])).transpose(0,2,1,3)/2
             for i in range(1,num_nodes): 
-                trace = np.einsum('iajb,jklm->iakblm', trace, self.nodes[i].data)
-                trace = np.einsum('iakblm,bcml->iakc', trace, other.nodes[i].data)/2
+                trace = np.tensordot(trace, self.nodes[i].data, axes=([2],[0])).transpose(0,1,3,2,4,5)
+                trace = np.tensordot(trace, other.nodes[i].data, axes=([3,4,5],[0,3,2]))/2
             return trace
         else: 
-            trace = np.einsum('ijkl,ablk->iajb', self.nodes[num_nodes-1].data, other.nodes[num_nodes-1].data)/2
+            trace = np.tensordot(self.nodes[num_nodes-1].data, other.nodes[num_nodes-1].data, 
+                                                     axes=([2,3],[3,2])).transpose(0,2,1,3)/2
             for i in range(num_nodes-2,-1,-1):
-                trace = np.einsum('iajb,hikl->jbhakl', trace, self.nodes[i].data)
-                trace = np.einsum('jbhakl,calk->hcjb', trace, other.nodes[i].data)/2
+                trace = np.tensordot(trace, self.nodes[i].data, axes=([0],[1])).transpose(1,2,3,0,4,5)
+                trace = np.tensordot(trace, other.nodes[i].data, axes=([3,4,5],[1,3,2])).transpose(2,3,0,1)/2
             return trace
-        
+    
     def conj(self): 
         nodes = [copy.deepcopy(node).conj() for node in self.nodes]
         return MPO(nodes)
     
+    def to_matrix(self):
+        """ for debugging purposes """
+        matrix = self.nodes[0].data
+        for i in range(1, self.num_nodes): 
+            matrix = np.einsum('ijkl,jmno->imknlo', matrix, self.nodes[i].data)
+            matrix = group_ind(group_ind(matrix, 4,5), 2,3) 
+        return matrix[0][0] 
+    
+def random_mpo(num_qubits, bond_dim):
+    return MPO([Node(np.random.rand(1,bond_dim,2,2))] + [Node(np.random.rand(bond_dim,bond_dim,2,2)) 
+                                for i in range(num_qubits-2)] + [Node(np.random.rand(bond_dim,1,2,2))])
+
 
 def random_mpo(num_qubits, bond_dim):
     return MPO([Node(np.random.rand(1,bond_dim,2,2))] + [Node(np.random.rand(bond_dim,bond_dim,2,2)) 

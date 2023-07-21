@@ -2,6 +2,7 @@ from tqdm import tqdm
 from models import *
 from environments import *
 import pickle
+import time
 
 def node_cost(params, n_env, t):
     if isinstance(params, (float, np.float64)):
@@ -43,13 +44,13 @@ def general_node_deriv(n_env, params):
 
     # Compute the derivatives using broadcasting
     result = jnp.stack((
-        jnp.sum(jnp.sum(jnp.real(jnp.einsum('ijkl,ij,kl->ij', n_env, gate, dual_theta.conj().T) +
-                 jnp.einsum('ijkl,ij,kl->ij', n_env, dual_theta, gate.conj().T)))),
-        jnp.sum(jnp.sum(jnp.real(jnp.einsum('ijkl,ij,kl->ij', n_env, gate, dual_lamb.conj().T) +
-                 jnp.einsum('ijkl,ij,kl->ij', n_env, dual_lamb, gate.conj().T)))),
-        jnp.sum(jnp.sum(jnp.real(jnp.einsum('ijkl,ij,kl->ij', n_env, gate, dual_phi.conj().T) +
-                 jnp.einsum('ijkl,ij,kl->ij', n_env, dual_phi, gate.conj().T))))
-    ))
+        jnp.einsum('ijkl,ij,kl', n_env, gate, dual_theta.conj().T) +
+                 jnp.einsum('ijkl,ij,kl', n_env, dual_theta, gate.conj().T),
+        jnp.einsum('ijkl,ij,kl', n_env, gate, dual_lamb.conj().T) +
+                 jnp.einsum('ijkl,ij,kl', n_env, dual_lamb, gate.conj().T),
+        jnp.einsum('ijkl,ij,kl', n_env, gate, dual_phi.conj().T) +
+                 jnp.einsum('ijkl,ij,kl', n_env, dual_phi, gate.conj().T)
+    )).real
 
     return result
  
@@ -103,13 +104,15 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
     target_mpo = xy_mpo(num_qubits, t, num_trotter_steps, min_sv_ratio, max_dim)
     
     noisy_cost_data = []
+    time_data = []
     if testing:
         exact_target_mpo = xy_mpo(num_qubits, t, num_trotter_steps, max_dim=2**num_qubits)
         exact_cost_data = [1-exact_target_mpo.conj().mult_and_trace(ansatz.mpo())[0,0,0,0].real]
 
     left_envs, right_envs = all_stack_envs(ansatz, target_mpo, min_sv_ratio, max_dim)
     
-    for stack_sweep in tqdm(range(num_stack_sweeps)): 
+    begin_time = time.time()
+    for stack_sweep in range(num_stack_sweeps): 
         # left to right sweep 
         for stack_idx in tqdm(range(ansatz.num_stacks-1)): 
             stack_env1, stack_env2 = right_envs[stack_idx], left_envs[stack_idx]
@@ -122,15 +125,18 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
             starting_cost = node_cost(starting_params, full_env(link_datas1[0], link_datas2[0], top_envs[0], bottom_envs[0]), t)
             for node_sweep in range(num_node_sweeps):
                 cost_list = sweep_up_down(ansatz, stack_idx, bottom_envs, top_envs, link_datas1, link_datas2, t)
-                noisy_cost_data += cost_list
                 if node_sweep > 5: 
                     if np.abs(cost_list[0]-cost_list[-1])/starting_cost < min_update:
                         break 
-            
+                        
             left_envs[stack_idx+1] = build_left_env(left_envs[stack_idx], ansatz.param_mpo_stacks[stack_idx], stack_idx+1, 
                                                     ansatz.num_stacks, min_sv_ratio, max_dim)
+            noisy_cost_data.append(cost_list[-1])
+            new_time = time.time()
+            time_data.append(new_time - begin_time)
+            
         # right to left sweep
-        for stack_idx in tqdm(range(ansatz.num_stacks-1,0,-1)): 
+        for stack_idx in range(ansatz.num_stacks-1,0,-1): 
             stack_env1, stack_env2 = right_envs[stack_idx], left_envs[stack_idx]
             param_mpo = ansatz.param_mpo_stacks[stack_idx]
             bottom_envs, top_envs = all_node_envs(param_mpo, stack_env1, stack_env2)
@@ -141,23 +147,25 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
             starting_cost = node_cost(starting_params, full_env(link_datas1[0], link_datas2[0], top_envs[0], bottom_envs[0]), t)
             for node_sweep in range(num_node_sweeps):
                 cost_list = sweep_up_down(ansatz, stack_idx, bottom_envs, top_envs, link_datas1, link_datas2, t)
-                noisy_cost_data += cost_list
                 if node_sweep > 5: 
                     if np.abs(cost_list[0]-cost_list[-1])/starting_cost < min_update:
-                        break            
-   
+                        break      
+                        
             right_envs[stack_idx-1] = build_right_env(right_envs[stack_idx], ansatz.param_mpo_stacks[stack_idx], stack_idx-1, 
                                                       ansatz.num_stacks, min_sv_ratio, max_dim)
-        
+            noisy_cost_data.append(cost_list[-1])
+            new_time = time.time()
+            time_data.append(new_time - begin_time)
+            
         if testing:
             exact_cost = 1-exact_target_mpo.conj().mult_and_trace(ansatz.mpo())[0,0,0,0].real
             exact_cost_data.append(exact_cost)
-            print(exact_cost)
+            #print(exact_cost)
         
     if testing: 
-        return noisy_cost_data, exact_cost_data, ansatz.angles, ansatz.params
+        return noisy_cost_data, exact_cost_data, time_data, ansatz.angles, ansatz.params
     else:
-        return noisy_cost_data, ansatz.angles, ansatz.params
+        return noisy_cost_data, time_data, ansatz.angles, ansatz.params
 
 
 def run_training(output_file, num_qubits, t, num_trotter_steps, num_w_layers, angles=None, params=None, min_sv_ratio=None, max_dim=None, 

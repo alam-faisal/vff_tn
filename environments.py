@@ -115,36 +115,42 @@ def build_bottom_env(cur_bottom_env, param_data, link_data1, link_data2=None):
     if link_data2 is None: 
         ''' rz stack '''
         if cur_bottom_env is not None: 
-            return np.einsum('ij,hiab,kjba->hk', cur_bottom_env, link_data1, param_data)/2
+            a = np.tensordot(cur_bottom_env, link_data1, axes=([0],[1]))
+            return np.tensordot(a, param_data, axes=([0,2,3],[1,3,2]))/2
         else: 
-            return np.einsum('ijkl,ajlk->ia', link_data1, param_data)/2
+            return np.tensordot(link_data1, param_data, axes=([1,2,3],[1,3,2]))/2
     else: 
         ''' a general stack '''
-        link_data1 = group_ind(group_ind(np.einsum('ijkl,mnlo->imjnko', link_data1, param_data), 0,1), 1,2)
-        link_data2 = group_ind(group_ind(np.einsum('ijkl,mnlo->imjnko', link_data2, param_data.conj().transpose(0,1,3,2)), 0,1), 1,2)
+        link_data1 = group_ind(group_ind(np.tensordot(link_data1, param_data, axes=([3],[2])).transpose(0,3,1,4,2,5), 0,1), 1,2)
+        link_data2 = group_ind(group_ind(np.tensordot(link_data2, param_data.conj().transpose(0,1,3,2), 
+                                                      axes=([3],[2])).transpose(0,3,1,4,2,5), 0,1), 1,2)
         if cur_bottom_env is not None: 
-            return np.einsum('ijxy,hiab,gjba->hgxy', cur_bottom_env, link_data1, link_data2)/2
+            a = np.tensordot(cur_bottom_env, link_data1, axes=([0],[1]))
+            return np.tensordot(a, link_data2, axes=([0,4,5],[1,3,2])).transpose(2,3,0,1)/2
         else: 
-            return np.einsum('hiab,gjba->hgij', link_data1, link_data2)/2
+            return np.tensordot(link_data1, link_data2, axes=([2,3],[3,2])).transpose(0,2,1,3)/2
 
 def build_top_env(cur_top_env, param_data, link_data1, link_data2=None): 
     """ link_data are the nodes coming from stack_envs, param_data is the node coming from current stack """
     if link_data2 is None: 
         ''' rz stack '''
         if cur_top_env is not None: 
-            return np.einsum('ij,jkab,xxba->ik', cur_top_env, link_data1, param_data)/2
+            a = np.tensordot(cur_top_env, link_data1, axes=([1],[0]))
+            return np.tensordot(a, param_data, axes=([2,3],[3,2]))[:,:,0,0]/2
         else: 
-            return np.einsum('ijkl,ialk->aj', link_data1, param_data)/2
+            return np.tensordot(link_data1, param_data, axes=([0,2,3],[0,3,2])).T/2
     else: 
         ''' a general stack '''
-        link_data1 = group_ind(group_ind(np.einsum('ijkl,mnlo->imjnko', link_data1, param_data), 0,1), 1,2)
-        link_data2 = group_ind(group_ind(np.einsum('ijkl,mnlo->imjnko', link_data2, param_data.conj().transpose(0,1,3,2)), 0,1), 1,2)
+        link_data1 = group_ind(group_ind(np.tensordot(link_data1, param_data, axes=([3],[2])).transpose(0,3,1,4,2,5), 0,1), 1,2)
+        link_data2 = group_ind(group_ind(np.tensordot(link_data2, param_data.conj().transpose(0,1,3,2), 
+                                                      axes=([3],[2])).transpose(0,3,1,4,2,5), 0,1), 1,2)
         if cur_top_env is not None: 
-            return np.einsum('xyij,ikab,jlba->xykl', cur_top_env, link_data1, link_data2)/2
+            a = np.tensordot(cur_top_env, link_data1, axes=([2],[0]))
+            return np.tensordot(a, link_data2, axes=([2,4,5],[0,3,2]))/2
         else: 
-            return np.einsum('ikab,jlba->ijkl', link_data1, link_data2)/2
+            return np.tensordot(link_data1, link_data2, axes=([2,3],[3,2])).transpose(0,2,1,3)/2
         return None    
-                                         
+    
 def node_semi_env(param_mpo, node_idx, stack_env1, stack_env2=None):
     """ Given stack_envs of param_mpo, this computes the top and bottom semi_envs of a particular node """ 
     num_nodes = param_mpo.num_nodes
@@ -174,26 +180,31 @@ def full_env(link_data1, link_data2=None, top_env=None, bottom_env=None):
         ''' we are in a general stack ''' 
         if top_env is not None and bottom_env is not None: 
             ''' we are in the bulk of the stack ''' 
-            return np.einsum('xyij,ikab,jlcd,klmn->bcda', top_env, link_data1, link_data2, bottom_env)/2
+            a = np.tensordot(top_env[0,0], link_data1, axes=([0],[0]))
+            b = np.tensordot(a, link_data2, axes=([0],[0]))
+            return np.tensordot(b, bottom_env[:,:,0,0], axes=([0,3],[0,1])).transpose(1,2,3,0)/2
         elif top_env is None: 
             ''' we are at the top boundary of the stack '''
-            return np.einsum('ijxx,hiab,hjcd->bcda', bottom_env, link_data1, link_data2)/2
+            a = np.tensordot(bottom_env[:,:,0,0], link_data1, axes=([0],[1]))
+            return np.tensordot(a, link_data2, axes=([0,1],[1,0])).transpose(1,2,3,0)/2
         else: 
             ''' we are at the bottom boundary of the stack '''
-            return np.einsum('xyij,ikab,jlcd->bcda', top_env, link_data1, link_data2)/2
+            a = np.tensordot(top_env[0,0], link_data1, axes=([0],[0]))
+            return np.tensordot(a, link_data2, axes=([0],[0]))[0,:,:,0,:,:].transpose(1,2,3,0)/2
         
     else: 
         ''' we are in the rz stack '''
         if top_env is not None and bottom_env is not None: 
             ''' we are in the bulk of the stack '''
-            return np.einsum('ij,jklm,ki->lm', top_env, link_data1, bottom_env)/2
+            a = np.tensordot(top_env, link_data1, axes=([1],[0]))
+            return np.tensordot(a, bottom_env, axes=([0,1],[1,0]))/2
         elif top_env is None: 
             ''' we are at the top boundary of the stack '''
-            return np.einsum('jklm,kj->lm', link_data1, bottom_env)/2
+            return np.tensordot(link_data1, bottom_env, axes=([0,1],[1,0]))/2
         else: 
             ''' we are at the bottom boundary of the stack '''
-            return np.einsum('kj,jklm->lm', top_env, link_data1)/2
-
+            return np.tensordot(top_env, link_data1, axes=([0,1],[1,0]))/2
+        
 def node_env(param_mpo, node_idx, stack_env1, stack_env2=None):
     """ Given stack_envs of param_mpo, this computes the environment of a particular node inside param_mpo """ 
     top_env, bottom_env = node_semi_env(param_mpo, node_idx, stack_env1, stack_env2)
@@ -211,4 +222,3 @@ def all_node_envs(param_mpo, stack_env1, stack_env2=None):
         bottom_envs.append(bottom_env)
         top_envs.append(top_env)
     return bottom_envs, top_envs
-
