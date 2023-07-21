@@ -15,8 +15,11 @@ def node_cost(params, n_env, t):
 def rz_node_deriv(n_env, angle, t): 
     return ((1.j*t/2)*(n_env[0,0]*np.exp(-1.j*t*angle/2) - n_env[1,1]*np.exp(1.j*t*angle/2))).real
 
-from jax import jit
+from jax import jit, config
 import jax.numpy as jnp
+config.update("jax_enable_x64", True)
+config.update("jax_platform_name", "cpu")
+
 @jit
 def general_node_deriv(n_env, params):
     theta, lamb, phi = params
@@ -112,9 +115,9 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
     left_envs, right_envs = all_stack_envs(ansatz, target_mpo, min_sv_ratio, max_dim)
     
     begin_time = time.time()
-    for stack_sweep in range(num_stack_sweeps): 
+    for stack_sweep in tqdm(range(num_stack_sweeps)): 
         # left to right sweep 
-        for stack_idx in tqdm(range(ansatz.num_stacks-1)): 
+        for stack_idx in range(ansatz.num_stacks-1): 
             stack_env1, stack_env2 = right_envs[stack_idx], left_envs[stack_idx]
             param_mpo = ansatz.param_mpo_stacks[stack_idx]
             bottom_envs, top_envs = all_node_envs(param_mpo, stack_env1, stack_env2)
@@ -205,32 +208,3 @@ def node_grad_fd(params, n_env, t=None):
     return np.array([node_fd(params, i, n_env, t) for i in range(len(params))])
 
 ##################################################################################
-        
-        
-'''
-def node_cost(params, n_env, t=None):
-    if type(params) == float or type(params) == np.float64:
-        return 1-(n_env[0,0]*np.exp(-1.j*angle*t/2) + n_env[1,1]*np.exp(1.j*angle*t/2)).real 
-    else:
-        param_mat = one_qubit_gate(*params)
-        return 1-np.einsum('ijkl,ij,kl', n_env, param_mat, param_mat.conj().T).real
-        
-def theta_dual(theta, lamb, phi): 
-    return (1/2) * np.array([[np.sin(theta/2), np.exp(1.j*lamb)*np.cos(theta/2)], 
-                 [-np.exp(1.j*phi)*np.cos(theta/2), np.exp(1.j*(lamb+phi))*np.sin(theta/2)]])
-
-def phi_dual(theta, lamb, phi): 
-    return (-1.j) * np.array([[0, 0], 
-                 [np.exp(1.j*phi)*np.sin(theta/2), np.exp(1.j*(lamb+phi))*np.cos(theta/2)]])
-
-def lamb_dual(theta, lamb, phi): 
-    return (-1.j) * np.array([[0, -np.exp(1.j*lamb)*np.sin(theta/2)], 
-                 [0, np.exp(1.j*(lamb+phi))*np.cos(theta/2)]])
-    
-def general_node_deriv(n_env, params): 
-    gate = one_qubit_gate(*params)
-    duals = [theta_dual(*params), lamb_dual(*params), phi_dual(*params)]
-    return np.array([np.einsum('ijkl,ij,kl', n_env, gate, dual.conj().T) + np.einsum('ijkl,ij,kl', n_env, dual, gate.conj().T) 
-                     for dual in duals]).real
-'''
-
