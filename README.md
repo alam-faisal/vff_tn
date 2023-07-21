@@ -2,7 +2,7 @@
 
 Finds fast forwarding circuits for Hamiltonian evolution by representing the ansatz circuit as layers of MPOs. 
 
-Written using NumPy (and soon with Numba acceleration) 
+Written using NumPy (and a little bit of JAX) 
 
 mpo.py contains the MPO class
 
