@@ -14,4 +14,4 @@ environments.py computes the various environment tensors necessary to efficientl
 
 nodewise_train contains the optimization methods
 
-ipynb_tests includes some Jupyter notebooks testing the different codebase and showing how to call the different functions
+ipynb_tests includes some Jupyter notebooks testing the codebase and showing how to call the different functions
