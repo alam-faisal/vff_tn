@@ -154,8 +154,3 @@ class MPO:
 def random_mpo(num_qubits, bond_dim):
     return MPO([Node(np.random.rand(1,bond_dim,2,2))] + [Node(np.random.rand(bond_dim,bond_dim,2,2)) 
                                 for i in range(num_qubits-2)] + [Node(np.random.rand(bond_dim,1,2,2))])
-
-
-def random_mpo(num_qubits, bond_dim):
-    return MPO([Node(np.random.rand(1,bond_dim,2,2))] + [Node(np.random.rand(bond_dim,bond_dim,2,2)) 
-                                for i in range(num_qubits-2)] + [Node(np.random.rand(bond_dim,1,2,2))])
