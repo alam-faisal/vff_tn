@@ -110,14 +110,14 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
     time_data = []
     if testing:
         exact_target_mpo = xy_mpo(num_qubits, t, num_trotter_steps, max_dim=2**num_qubits)
-        exact_cost_data = [1-exact_target_mpo.conj().mult_and_trace(ansatz.mpo())[0,0,0,0].real]
+        exact_cost_data = [1-exact_target_mpo.conj().mult_and_trace(ansatz.mpo(max_dim=2**num_qubits))[0,0,0,0].real]
 
     left_envs, right_envs = all_stack_envs(ansatz, target_mpo, min_sv_ratio, max_dim)
     
     begin_time = time.time()
     for stack_sweep in tqdm(range(num_stack_sweeps)): 
         # left to right sweep 
-        for stack_idx in range(ansatz.num_stacks-1): 
+        for stack_idx in tqdm(range(ansatz.num_stacks-1)): 
             stack_env1, stack_env2 = right_envs[stack_idx], left_envs[stack_idx]
             param_mpo = ansatz.param_mpo_stacks[stack_idx]
             bottom_envs, top_envs = all_node_envs(param_mpo, stack_env1, stack_env2)
@@ -127,7 +127,8 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
             starting_params = ansatz.angles[0] if stack_idx == 0 else ansatz.params[stack_idx-1][0:3]
             starting_cost = node_cost(starting_params, full_env(link_datas1[0], link_datas2[0], top_envs[0], bottom_envs[0]), t)
             for node_sweep in range(num_node_sweeps):
-                cost_list = sweep_up_down(ansatz, stack_idx, bottom_envs, top_envs, link_datas1, link_datas2, t)
+                cost_list = sweep_up_down(ansatz, stack_idx, bottom_envs, top_envs, link_datas1, link_datas2, t, max_iter=max_iter, 
+                                          eta=eta, min_update=min_update)
                 if node_sweep > 5: 
                     if np.abs(cost_list[0]-cost_list[-1])/starting_cost < min_update:
                         break 
@@ -137,9 +138,11 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
             noisy_cost_data.append(cost_list[-1])
             new_time = time.time()
             time_data.append(new_time - begin_time)
+            if new_time - begin_time > 55000: 
+                break
             
         # right to left sweep
-        for stack_idx in range(ansatz.num_stacks-1,0,-1): 
+        for stack_idx in tqdm(range(ansatz.num_stacks-1,0,-1)): 
             stack_env1, stack_env2 = right_envs[stack_idx], left_envs[stack_idx]
             param_mpo = ansatz.param_mpo_stacks[stack_idx]
             bottom_envs, top_envs = all_node_envs(param_mpo, stack_env1, stack_env2)
@@ -149,7 +152,8 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
             starting_params = ansatz.angles[0] if stack_idx == 0 else ansatz.params[stack_idx-1][0:3]
             starting_cost = node_cost(starting_params, full_env(link_datas1[0], link_datas2[0], top_envs[0], bottom_envs[0]), t)
             for node_sweep in range(num_node_sweeps):
-                cost_list = sweep_up_down(ansatz, stack_idx, bottom_envs, top_envs, link_datas1, link_datas2, t)
+                cost_list = sweep_up_down(ansatz, stack_idx, bottom_envs, top_envs, link_datas1, link_datas2, t, max_iter=max_iter, 
+                                          eta=eta, min_update=min_update)
                 if node_sweep > 5: 
                     if np.abs(cost_list[0]-cost_list[-1])/starting_cost < min_update:
                         break      
@@ -159,11 +163,12 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
             noisy_cost_data.append(cost_list[-1])
             new_time = time.time()
             time_data.append(new_time - begin_time)
+            if new_time - begin_time > 55000: 
+                break
             
-        if testing:
-            exact_cost = 1-exact_target_mpo.conj().mult_and_trace(ansatz.mpo())[0,0,0,0].real
+        if testing and stack_sweep % (num_stack_sweeps//10):
+            exact_cost = 1-exact_target_mpo.conj().mult_and_trace(ansatz.mpo(max_dim=2**num_qubits))[0,0,0,0].real
             exact_cost_data.append(exact_cost)
-            #print(exact_cost)
         
     if testing: 
         return noisy_cost_data, exact_cost_data, time_data, ansatz.angles, ansatz.params
