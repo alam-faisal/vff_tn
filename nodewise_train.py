@@ -117,7 +117,7 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
     begin_time = time.time()
     for stack_sweep in tqdm(range(num_stack_sweeps)): 
         # left to right sweep 
-        for stack_idx in tqdm(range(ansatz.num_stacks-1)): 
+        for stack_idx in range(ansatz.num_stacks-1): 
             stack_env1, stack_env2 = right_envs[stack_idx], left_envs[stack_idx]
             param_mpo = ansatz.param_mpo_stacks[stack_idx]
             bottom_envs, top_envs = all_node_envs(param_mpo, stack_env1, stack_env2)
@@ -142,7 +142,7 @@ def nodewise_train(num_qubits, t, num_trotter_steps, num_w_layers, angles=None, 
                 break
             
         # right to left sweep
-        for stack_idx in tqdm(range(ansatz.num_stacks-1,0,-1)): 
+        for stack_idx in range(ansatz.num_stacks-1,0,-1): 
             stack_env1, stack_env2 = right_envs[stack_idx], left_envs[stack_idx]
             param_mpo = ansatz.param_mpo_stacks[stack_idx]
             bottom_envs, top_envs = all_node_envs(param_mpo, stack_env1, stack_env2)
